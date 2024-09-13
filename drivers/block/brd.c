@@ -24,8 +24,26 @@
 #include <linux/slab.h>
 #include <linux/backing-dev.h>
 #include <linux/debugfs.h>
+#include<linux/kthread.h>
+#include<linux/delay.h> 
 
 #include <linux/uaccess.h>
+
+static struct task_struct *dispatch_thread;
+
+int bio_dispatcher(void *priv)
+{
+	while (!kthread_should_stop()) {
+		// pr_err("Thread running!\n");
+		msleep(1000);
+	}
+	pr_err("thread stopped\n");
+	return 0;
+}
+
+struct outstanding_bio {
+	struct bio *bio;
+};
 
 /*
  * Each block ramdisk device has a xarray brd_pages of pages that stores
@@ -38,6 +56,9 @@ struct brd_device {
 	int			brd_number;
 	struct gendisk		*brd_disk;
 	struct list_head	brd_list;
+	struct outstanding_bio	obios[256];
+	int			num_obios;
+	bool 			latency_injection_enabled;
 
 	/*
 	 * Backing store of pages. This is the contents of the block device.
@@ -115,6 +136,32 @@ static void brd_free_pages(struct brd_device *brd)
 	}
 
 	xa_destroy(&brd->brd_pages);
+}
+
+static int brd_ioctl(struct block_device *bdev, blk_mode_t mode,
+			unsigned int cmd, unsigned long arg)
+{
+	struct brd_device *brd = bdev->bd_disk->private_data;
+
+	if (cmd == 0xcafe) {
+		brd->latency_injection_enabled = true;
+		dispatch_thread = kthread_create(
+					bio_dispatcher, NULL,
+					"mldisksim_dispatcher");
+		if (dispatch_thread != NULL)
+			wake_up_process(dispatch_thread);
+		pr_err("mldisksim_dispatcher is running\n");
+		return 0;
+	} else if (cmd == 0xdead) {
+		if (!brd->latency_injection_enabled)
+			return -EINVAL;
+		if (brd->num_obios == 0)
+			return 0;
+		brd->num_obios--;
+		bio_endio(brd->obios[brd->num_obios].bio);
+		return 0;
+	}
+	return 0;
 }
 
 /*
@@ -268,12 +315,18 @@ static void brd_submit_bio(struct bio *bio)
 		sector += len >> SECTOR_SHIFT;
 	}
 
-	bio_endio(bio);
+	if (!brd->latency_injection_enabled) {
+		bio_endio(bio);
+		return;
+	}
+	brd->obios[brd->num_obios++].bio = bio;
+
 }
 
 static const struct block_device_operations brd_fops = {
 	.owner =		THIS_MODULE,
 	.submit_bio =		brd_submit_bio,
+	.ioctl =		brd_ioctl,
 };
 
 /*
@@ -326,6 +379,8 @@ static int brd_alloc(int i)
 	if (!brd)
 		return -ENOMEM;
 	brd->brd_number		= i;
+	brd->latency_injection_enabled = false;
+	brd->num_obios = 0;
 	list_add_tail(&brd->brd_list, &brd_devices);
 
 	xa_init(&brd->brd_pages);
