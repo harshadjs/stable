@@ -675,6 +675,17 @@ static inline void bio_inc_remaining(struct bio *bio)
  */
 #define BIO_POOL_SIZE 2
 
+/* read() structure */
+struct user_bio_msg {
+	bool write;
+	uint64_t bio_id;
+	uint64_t bio_size;
+	int outstanding_bios;
+	uint64_t lba_diff;
+	uint64_t lba;
+} __packed;
+
+
 struct bio_set {
 	struct kmem_cache *bio_slab;
 	unsigned int front_pad;

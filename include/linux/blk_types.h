@@ -278,6 +278,10 @@ struct bio {
 	blk_qc_t		bi_cookie;
 	bio_end_io_t		*bi_end_io;
 	void			*bi_private;
+	uint64_t submit_time_ns;
+	uint64_t complete_time_ns;
+	uint64_t predicted_latency_ns;
+	uint64_t lba_diff;
 #ifdef CONFIG_BLK_CGROUP
 	/*
 	 * Represents the association of the css and request_queue for the bio.
