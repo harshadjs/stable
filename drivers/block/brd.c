@@ -741,6 +741,7 @@ int bio_dispatcher(void *priv)
 
 	while (!kthread_should_stop()) {
 		// msleep(5);
+		schedule();
 		new_bio = NULL;
 		spin_lock(&predicted_bios_list_lock);
 		new_bio = list_first_entry_or_null(&predicted_bio_list, struct predicted_bio, list_entry);
@@ -775,6 +776,7 @@ int bio_user_handler(void *priv)
 
 	while (!kthread_should_stop()) {
 		// msleep(5);
+		schedule();
 		bio = (struct bio *)ring_buf_get(brd->submit_ring);		
 		if (bio) {
 			handle_user_bio(bio);
