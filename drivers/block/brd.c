@@ -747,6 +747,7 @@ int bio_dispatcher(void *priv)
 		spin_lock(&predicted_bios_list_lock);
 		new_bio = list_first_entry_or_null(&predicted_bio_list, struct predicted_bio, list_entry);
 		if (new_bio != NULL) {
+			// printk(KERN_INFO "%s: new_bio = %p, new_bio->list_entry = %p, num list nodes = %d\n", __func__, new_bio, &new_bio->list_entry, list_count_nodes(&predicted_bio_list));
 			list_del(&new_bio->list_entry);
 		}
 		spin_unlock(&predicted_bios_list_lock);
@@ -761,6 +762,7 @@ int bio_dispatcher(void *priv)
 		usleep_range(sleep_time, sleep_time + 1);
 		// usleep(sleep_time);
 		bio_endio(new_bio->bio);
+		memset(new_bio, 0, sizeof(struct predicted_bio));
 		ring_buf_put(predicted_bio_free_list, (uint64_t*)new_bio);
 		atomic_dec(&num_inflight_bios);
 	}
@@ -775,6 +777,7 @@ int bio_user_handler(void *priv)
 	struct predicted_bio *pos;
 	struct predicted_bio *new_predicted_bio;
 	uint64_t prev_bio_submit_time_ns = 0;
+	bool added = false;
 
 	while (!kthread_should_stop()) {
 		// msleep(5);
@@ -795,14 +798,19 @@ int bio_user_handler(void *priv)
 			INIT_LIST_HEAD(&new_predicted_bio->list_entry);
 			new_predicted_bio->bio = bio;
 
+			added = false;
 			spin_lock(&predicted_bios_list_lock);
 			list_for_each_entry(pos, &predicted_bio_list, list_entry) {
 				if (pos->bio->complete_time_ns > bio->complete_time_ns) {
 					list_add_tail(&new_predicted_bio->list_entry, &pos->list_entry);
+					added = true;
 					break;
 				}
+			}			
+			if (!added) {
+				list_add_tail(&new_predicted_bio->list_entry, &predicted_bio_list);
 			}
-			list_add_tail(&new_predicted_bio->list_entry, &predicted_bio_list);
+			// printk(KERN_INFO "%s: ADDING BIO new_bio = %p, new_bio->list_entry = %p, num list nodes = %d, complete_time_ns = %lu\n", __func__, new_predicted_bio, &new_predicted_bio->list_entry, list_count_nodes(&predicted_bio_list), bio->complete_time_ns);
 			spin_unlock(&predicted_bios_list_lock);
 		}
 	}
