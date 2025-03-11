@@ -282,6 +282,7 @@ struct bio {
 	uint64_t complete_time_ns;
 	uint64_t predicted_latency_ns;
 	uint64_t lba_diff;
+	uint64_t request_gap_ns;
 #ifdef CONFIG_BLK_CGROUP
 	/*
 	 * Represents the association of the css and request_queue for the bio.

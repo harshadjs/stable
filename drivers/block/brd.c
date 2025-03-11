@@ -565,16 +565,17 @@ static inline void msg_init(struct user_bio_msg *msg)
 }
 
 
-static inline struct user_bio_msg user_bio_msg(bool write, uint64_t bio_id, uint64_t bio_size, int outstanding_bios, uint64_t lba_diff, uint64_t lba)
+static inline struct user_bio_msg user_bio_msg(bool write, uint64_t bio_id, uint64_t bio_size, int outstanding_bios, uint64_t lba_diff, uint64_t lba, uint64_t request_gap_ns)
 {
 	struct user_bio_msg msg;
 	msg_init(&msg);
-	msg.write = true;
+	msg.write = write;
 	msg.bio_id = bio_id;
 	msg.bio_size = bio_size;
 	msg.outstanding_bios = outstanding_bios;
 	msg.lba_diff = lba_diff;
 	msg.lba = lba;
+	msg.request_gap_ns = request_gap_ns;
 
 	return msg;
 }
@@ -639,7 +640,7 @@ static void handle_user_bio(struct bio *bio)
 	submitted_bio_idx = (uint64_t)ring_buf_get(submit_bio_free_indices);	
 	submitted_bios[submitted_bio_idx] = bio;
 
-	uwq.msg = user_bio_msg(write, submitted_bio_idx, len, num_inflight, bio->lba_diff, bio->bi_iter.bi_sector);
+	uwq.msg = user_bio_msg(write, submitted_bio_idx, len, num_inflight, bio->lba_diff, bio->bi_iter.bi_sector, bio->request_gap_ns);
 	uwq.waken = false;
 	uwq.ctx = ctx;
 
@@ -755,8 +756,8 @@ int bio_dispatcher(void *priv)
 		current_time_us = ktime_get_raw_ns() / 1000;
 		complete_time_us = new_bio->bio->complete_time_ns / 1000;
 		sleep_time = (current_time_us >= complete_time_us) ? 0 : complete_time_us - current_time_us;
-		if (sleep_time > 0) 
-			printk(KERN_INFO "%s: bio sleeping for %lu time. submit time = %lu, complete_time = %lu, current_time = %lu, latency = %lu\n", __func__, sleep_time, new_bio->bio->submit_time_ns / 1000, complete_time_us, current_time_us, new_bio->bio->predicted_latency_ns);
+		// if (sleep_time > 0) 
+			// printk(KERN_INFO "%s: bio sleeping for %lu time. submit time = %lu, complete_time = %lu, current_time = %lu, latency = %lu\n", __func__, sleep_time, new_bio->bio->submit_time_ns / 1000, complete_time_us, current_time_us, new_bio->bio->predicted_latency_ns);
 		usleep_range(sleep_time, sleep_time + 1);
 		// usleep(sleep_time);
 		bio_endio(new_bio->bio);
@@ -773,12 +774,15 @@ int bio_user_handler(void *priv)
 	struct bio *bio = NULL;
 	struct predicted_bio *pos;
 	struct predicted_bio *new_predicted_bio;
+	uint64_t prev_bio_submit_time_ns = 0;
 
 	while (!kthread_should_stop()) {
 		// msleep(5);
 		schedule();
 		bio = (struct bio *)ring_buf_get(brd->submit_ring);		
 		if (bio) {
+			bio->request_gap_ns = bio->submit_time_ns - prev_bio_submit_time_ns;
+			prev_bio_submit_time_ns = bio->submit_time_ns;
 			handle_user_bio(bio);
 			// insert sleep here
 			// bio_endio(bio);

@@ -683,6 +683,7 @@ struct user_bio_msg {
 	int outstanding_bios;
 	uint64_t lba_diff;
 	uint64_t lba;
+	uint64_t request_gap_ns;
 } __packed;
 
 
