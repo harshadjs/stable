@@ -565,11 +565,11 @@ static inline void msg_init(struct user_bio_msg *msg)
 }
 
 
-static inline struct user_bio_msg user_bio_msg(bool write, uint64_t bio_id, uint64_t bio_size, int outstanding_bios, uint64_t lba_diff, uint64_t lba, uint64_t request_gap_ns)
+static inline struct user_bio_msg user_bio_msg(unsigned int operation, uint64_t bio_id, uint64_t bio_size, int outstanding_bios, uint64_t lba_diff, uint64_t lba, uint64_t request_gap_ns)
 {
 	struct user_bio_msg msg;
 	msg_init(&msg);
-	msg.write = write;
+	msg.operation = operation;
 	msg.bio_id = bio_id;
 	msg.bio_size = bio_size;
 	msg.outstanding_bios = outstanding_bios;
@@ -620,7 +620,7 @@ static void handle_user_bio(struct bio *bio)
 	unsigned int blocking_state;
 	struct user_bio_ctx *ctx = brd->ubio_ctx;
 	bool must_wait;
-	bool write;
+	unsigned int operation; // 0 = READ, 1 = WRITE, 2 = WRITE + SYNC
 	sector_t len;
 	int submitted_bio_idx = 0;
 	int num_inflight = 0;
@@ -628,10 +628,13 @@ static void handle_user_bio(struct bio *bio)
 	init_waitqueue_func_entry(&uwq.wq, user_bio_wake_function);
 	uwq.wq.private = current;
 
-	if (op_is_write(bio->bi_opf)) {
-		write = true;
+	if (op_is_flush(bio->bi_opf)) {
+	// if (op_is_sync(bio->bi_opf) && op_is_write(bio->bi_opf)) {
+		operation = 2;
+	} else if (op_is_write(bio->bi_opf)) {
+		operation = 1;
 	} else {
-		write = false;
+		operation = 0;
 	}
 	num_inflight = atomic_read(&num_inflight_bios);
 
@@ -640,7 +643,7 @@ static void handle_user_bio(struct bio *bio)
 	submitted_bio_idx = (uint64_t)ring_buf_get(submit_bio_free_indices);	
 	submitted_bios[submitted_bio_idx] = bio;
 
-	uwq.msg = user_bio_msg(write, submitted_bio_idx, len, num_inflight, bio->lba_diff, bio->bi_iter.bi_sector, bio->request_gap_ns);
+	uwq.msg = user_bio_msg(operation, submitted_bio_idx, len, num_inflight, bio->lba_diff, bio->bi_iter.bi_sector, bio->request_gap_ns);
 	uwq.waken = false;
 	uwq.ctx = ctx;
 
@@ -826,6 +829,8 @@ static void brd_submit_bio(struct bio *bio)
 	struct bio_vec bvec;
 	struct bvec_iter iter;
 	uint64_t previous_lba;
+
+	// BUG_ON(op_is_flush(bio->bi_opf));
 
 	// dump_stack();
 	bio->submit_time_ns = ktime_get_raw_ns();
@@ -1036,6 +1041,8 @@ static int brd_alloc(int i)
 	blk_queue_flag_set(QUEUE_FLAG_NONROT, disk->queue);
 	blk_queue_flag_set(QUEUE_FLAG_SYNCHRONOUS, disk->queue);
 	blk_queue_flag_set(QUEUE_FLAG_NOWAIT, disk->queue);
+	blk_queue_flag_set(QUEUE_FLAG_WC, disk->queue);
+	blk_queue_flag_set(QUEUE_FLAG_FUA, disk->queue);
 	err = add_disk(disk);
 	if (err)
 		goto out_cleanup_disk;

@@ -677,7 +677,7 @@ static inline void bio_inc_remaining(struct bio *bio)
 
 /* read() structure */
 struct user_bio_msg {
-	bool write;
+	int operation;
 	uint64_t bio_id;
 	uint64_t bio_size;
 	int outstanding_bios;
