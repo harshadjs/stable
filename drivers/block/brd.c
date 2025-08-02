@@ -232,7 +232,6 @@ static int wake_user_bio(struct user_bio_ctx *ctx)
 		__wake_user_bio(ctx);
 	ret = 0;
 
-out:
 	return ret;
 }
 
@@ -256,7 +255,6 @@ static long brd_file_ioctl(struct file *file, unsigned cmd,
 	struct bio *bio = NULL;
 
 	// printk(KERN_INFO "in the brd file ioctl\n");
-	int fd = 0;
 
 	if (cmd == 0xabcd) {
 		struct bio_latency {
@@ -320,7 +318,6 @@ static ssize_t user_bio_ctx_read(struct user_bio_ctx *ctx, int no_wait,
 	 * carefully.
 	 */
 	LIST_HEAD(fork_event);
-	struct user_bio_ctx *fork_nctx = NULL;
 
 	/* always take the fd_wqh lock before the fault_pending_wqh lock */
 	spin_lock_irq(&ctx->fd_wqh.lock);
@@ -608,7 +605,6 @@ static int user_bio_wake_function(wait_queue_entry_t *wq, unsigned mode,
 		 */
 		list_del_init(&wq->entry);
 	}
-out:
 	return ret;
 }
 
@@ -736,8 +732,6 @@ static __poll_t user_bio_poll(struct file *file, poll_table *wait)
 
 int bio_dispatcher(void *priv)
 {
-	struct brd_device *brd = (struct brd_device *)priv;
-	struct bio *bio = NULL;
 	struct predicted_bio *new_bio = NULL;
 	u64 current_time_us;
 	u64 complete_time_us;
